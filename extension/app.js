@@ -96,7 +96,11 @@ function init() {
     els.directoryInput.value = "";
   });
   els.refreshSources.addEventListener("click", renderSources);
-  els.refreshFavorites.addEventListener("click", renderFavorites);
+  els.refreshFavorites?.addEventListener("click", () => {
+    if (typeof renderFavorites === "function") {
+      renderFavorites();
+    }
+  });
 }
 
 function loadSettings() {
@@ -175,7 +179,7 @@ function showTab(name) {
   els.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   Object.entries(els.views).forEach(([key, view]) => view.classList.toggle("hidden", key !== name));
   if (name === "sources") renderSources();
-  if (name === "favorites") renderFavorites();
+  if (name === "favorites" && typeof renderFavorites === "function") renderFavorites();
 }
 
 async function runSearch() {
