@@ -116,24 +116,9 @@ async function ensureSource(deviceId, name, pathLabel) {
   return created[0];
 }
 
-function assertSyncToken(req) {
-  const expected = process.env.SYNC_TOKEN;
-  if (!expected) {
-    const error = new Error("SYNC_TOKEN is not configured");
-    error.statusCode = 503;
-    throw error;
-  }
-  if (req.headers["x-sync-token"] !== expected) {
-    const error = new Error("Invalid sync token");
-    error.statusCode = 401;
-    throw error;
-  }
-}
-
 module.exports = {
   CHUNK_SIZE,
   MAX_FILES_PER_SYNC,
-  assertSyncToken,
   cleanFile,
   ensureDevice,
   ensureSource,

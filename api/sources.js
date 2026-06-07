@@ -1,5 +1,4 @@
 const {
-  assertSyncToken,
   methodNotAllowed,
   safeText,
   sendJson,
@@ -20,8 +19,6 @@ module.exports = async function handler(req, res) {
 
 async function updateSource(req, res) {
   try {
-    assertSyncToken(req);
-
     const sourceId = safeText(req.body?.sourceId, 80);
     const pathLabel = String(req.body?.pathLabel || "").trim().slice(0, 300);
     if (!sourceId) return sendJson(res, 400, { error: "Missing sourceId" });

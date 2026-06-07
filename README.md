@@ -40,10 +40,9 @@ http://localhost:4173
 ```text
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=你的 service_role key
-SYNC_TOKEN=自定义一个长随机口令
 ```
 
-部署后，把扩展的 [extension/config.js](./extension/config.js) 指向 Vercel API 地址和 `SYNC_TOKEN`。
+扩展默认直连当前项目的 Vercel API。换域名时，可以在扩展设置里覆盖 API Base URL。
 
 健康检查：
 
@@ -70,15 +69,15 @@ GET /api/health
 
 - 前端不保存 Supabase URL/key。
 - 搜索和目录列表通过 `/api/search`、`/api/sources` 读取。
-- 同步写入通过 `/api/sync`，必须携带 `x-sync-token`。
+- 同步写入通过 `/api/sync`，不做用户认证。
 - API 不执行拼接 SQL，只调用 Supabase REST，并对输入长度、文件数量、视频后缀做校验。
-- 这不是完整用户认证；知道部署地址的人仍可能读取搜索结果。当前兜底重点是防止未授权修改数据库。
+- 知道部署地址的人可以读取和写入索引；当前兜底重点是避免 SQL 注入和避免上传电影文件。
 
 ## 浏览器扩展
 
 [extension](./extension) 里有 Chrome / Edge Manifest V3 扩展版应用。你可以手动 Load unpacked 安装，不需要发布到 Chrome Web Store。
 
-安装后点击浏览器工具栏里的 Movie Manager 图标，直接在扩展 UI 里搜索、同步目录、配置云端 API。本地 demo 模式不需要云端配置。
+安装后点击浏览器工具栏里的 Movie Manager 图标，直接在扩展 UI 里搜索、同步目录。
 
 浏览器扩展本身不能直接执行 `open`、`start`、IINA、VLC 或 PotPlayer；真正打开本地文件需要安装 [native-helper](./native-helper) 里的 Native Messaging host。
 

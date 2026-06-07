@@ -5,13 +5,13 @@ const LOCAL_DEVICE_ID_KEY = "movie-manager:local-device-id";
 const HANDLE_DB_NAME = "movie-manager-handles";
 const HANDLE_STORE_NAME = "source-handles";
 const REMOTE_SYNC_CHUNK_SIZE = 500;
+const DEFAULT_API_BASE_URL = "https://moviemanager-rho.vercel.app";
 
 const els = {
   settingsToggle: document.querySelector("#settingsToggle"),
   settingsPanel: document.querySelector("#settingsPanel"),
   storageMode: document.querySelector("#storageMode"),
   apiBaseUrl: document.querySelector("#apiBaseUrl"),
-  syncToken: document.querySelector("#syncToken"),
   saveSettings: document.querySelector("#saveSettings"),
   checkNativeHelper: document.querySelector("#checkNativeHelper"),
   nativeHelperStatus: document.querySelector("#nativeHelperStatus"),
@@ -45,7 +45,6 @@ init();
 function init() {
   const settings = loadSettings();
   els.apiBaseUrl.value = settings.apiBaseUrl || "";
-  els.syncToken.value = settings.syncToken || "";
   updateStorageMode();
   restoreSyncForm();
   detectExtension();
@@ -57,7 +56,6 @@ function init() {
   els.saveSettings.addEventListener("click", () => {
     saveSettings({
       apiBaseUrl: els.apiBaseUrl.value.trim(),
-      syncToken: els.syncToken.value.trim(),
     });
     store = createStore(loadSettings());
     updateStorageMode();
@@ -70,7 +68,6 @@ function init() {
     localStorage.removeItem(SETTINGS_KEY);
     const settings = loadSettings();
     els.apiBaseUrl.value = settings.apiBaseUrl || "";
-    els.syncToken.value = settings.syncToken || "";
     store = createStore(settings);
     updateStorageMode();
     toast("已清除本机覆盖配置。");
@@ -99,9 +96,11 @@ function init() {
 function loadSettings() {
   const defaults = loadBundledConfig();
   try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (!String(saved.apiBaseUrl || "").trim()) delete saved.apiBaseUrl;
     return {
       ...defaults,
-      ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"),
+      ...saved,
     };
   } catch {
     return defaults;
@@ -115,8 +114,7 @@ function saveSettings(settings) {
 function loadBundledConfig() {
   const config = window.MOVIE_MANAGER_CONFIG || {};
   return {
-    apiBaseUrl: String(config.apiBaseUrl || "").trim(),
-    syncToken: String(config.syncToken || "").trim(),
+    apiBaseUrl: String(config.apiBaseUrl || DEFAULT_API_BASE_URL).trim(),
   };
 }
 
@@ -609,7 +607,7 @@ function shouldUseApi(settings) {
   return location.protocol === "https:" && !["localhost", "127.0.0.1"].includes(location.hostname);
 }
 
-function createApiStore({ apiBaseUrl = "", syncToken = "" }) {
+function createApiStore({ apiBaseUrl = "" }) {
   const baseUrl = apiBaseUrl.replace(/\/$/, "");
 
   async function request(path, options = {}) {
@@ -617,7 +615,6 @@ function createApiStore({ apiBaseUrl = "", syncToken = "" }) {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        ...(syncToken ? { "x-sync-token": syncToken } : {}),
         ...(options.headers || {}),
       },
     });

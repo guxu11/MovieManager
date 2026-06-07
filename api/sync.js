@@ -1,7 +1,6 @@
 const {
   CHUNK_SIZE,
   MAX_FILES_PER_SYNC,
-  assertSyncToken,
   cleanFile,
   ensureDevice,
   ensureSource,
@@ -15,8 +14,6 @@ module.exports = async function handler(req, res) {
   if (req.method !== "POST") return methodNotAllowed(res);
 
   try {
-    assertSyncToken(req);
-
     const deviceName = safeText(req.body?.deviceName, 80);
     const sourceName = safeText(req.body?.sourceName, 80);
     const pathLabel = String(req.body?.pathLabel || "").trim().slice(0, 300);
