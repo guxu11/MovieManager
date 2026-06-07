@@ -5,16 +5,20 @@ import platform
 import struct
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 VIDEO_SUFFIXES = {".mp4", ".ts", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v"}
 CONFIG_PATH = Path(__file__).with_name("config.json")
-LOG_PATH = Path("/tmp/movie_manager_helper.log")
+LOG_PATH = Path(tempfile.gettempdir()) / "movie_manager_helper.log"
 
 
 def log(message):
-    with LOG_PATH.open("a", encoding="utf-8") as file:
-        file.write(message + "\n")
+    try:
+        with LOG_PATH.open("a", encoding="utf-8") as file:
+            file.write(message + "\n")
+    except OSError:
+        pass
 
 
 def read_message():

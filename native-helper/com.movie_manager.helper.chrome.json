@@ -1,0 +1,9 @@
+{
+  "name": "com.movie_manager.helper",
+  "description": "Movie Manager local opener",
+  "path": "C:\\projects\\MovieManager\\native-helper\\movie_manager_helper_launcher.cmd",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://ocfaeplcgiiceeabdgnfnknellbohnpg/"
+  ]
+}
