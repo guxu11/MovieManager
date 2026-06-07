@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
     }
 
     const tokens = queryTokens(query);
-    const token = tokens.compact || tokens.parts[0] || query;
+    const token = tokens.parts[0] || tokens.compact || query;
     const rows = await supabaseRequest(
       `/files?filename=ilike.*${encodeURIComponent(token)}*&select=${select}&order=last_seen_at.desc&limit=80`
     );
@@ -43,7 +43,8 @@ function filterByTokens(rows, tokens) {
   if (!tokens.compact && !tokens.parts.length) return rows;
   return rows.filter((row) => {
     const filename = String(row.filename || "").toLowerCase();
-    if (tokens.compact && filename.includes(tokens.compact)) return true;
+    const compactFilename = filename.replace(/[^a-z0-9]+/g, "");
+    if (tokens.compact && compactFilename.includes(tokens.compact)) return true;
     return tokens.parts.length > 0 && tokens.parts.every((token) => filename.includes(token));
   });
 }

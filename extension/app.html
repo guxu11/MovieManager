@@ -11,7 +11,7 @@
       <header class="topbar">
         <div>
           <h1>Movie Manager</h1>
-          <p>搜索番号，确认文件在哪台设备和目录下。</p>
+          <p>搜索、收藏、同步本地电影索引。</p>
         </div>
         <button id="settingsToggle" class="icon-button" title="同步设置" aria-label="同步设置">⚙</button>
       </header>
@@ -37,6 +37,7 @@
 
       <nav class="tabs" aria-label="页面">
         <button class="tab active" data-tab="search">搜索</button>
+        <button class="tab" data-tab="favorites">精品</button>
         <button class="tab" data-tab="sync">同步</button>
         <button class="tab" data-tab="sources">目录</button>
       </nav>
@@ -48,16 +49,26 @@
               <input id="searchInput" type="search" placeholder="输入 ABC-123 / abc123 / 文件名" autocomplete="off">
               <button class="primary-button" type="submit">搜索</button>
             </form>
-            <div id="searchMeta" class="muted">输入番号后会优先精确匹配，找不到时再按文件名候选。</div>
+            <div id="searchMeta" class="muted">优先匹配番号，也支持文件名片段。</div>
           </div>
           <div id="results" class="results"></div>
+        </section>
+
+        <section id="favoritesTab" class="view hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>精品列表</h2>
+              <button id="refreshFavorites" class="ghost-button">刷新</button>
+            </div>
+          </div>
+          <div id="favoritesList" class="results"></div>
         </section>
 
         <section id="syncTab" class="view hidden">
           <div class="panel">
             <div class="panel-head">
               <h2>同步目录</h2>
-              <span class="muted">只上传索引，不上传电影文件。</span>
+              <span class="muted">只上传索引</span>
             </div>
             <div class="form-grid">
               <label>
@@ -80,7 +91,8 @@
               </div>
             </details>
             <div class="actions">
-              <button id="pickDirectory" class="primary-button">选择目录并同步</button>
+              <button id="pickDirectory" class="primary-button">同步路径 / 选择目录</button>
+              <button id="helperScanDirectory" class="ghost-button" type="button">仅用本机 Helper 扫描</button>
               <label class="file-fallback">
                 <span>兼容模式选择目录</span>
                 <input id="directoryInput" type="file" webkitdirectory multiple>
@@ -105,8 +117,11 @@
     <template id="resultTemplate">
       <article class="result-card">
         <div class="result-main">
-          <h3></h3>
-          <p class="muted"></p>
+          <div>
+            <h3></h3>
+            <p class="muted"></p>
+          </div>
+          <div class="result-actions"></div>
         </div>
         <div class="result-path"></div>
         <div class="result-footer"></div>

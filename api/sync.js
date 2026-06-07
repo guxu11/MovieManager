@@ -29,9 +29,13 @@ module.exports = async function handler(req, res) {
     }
 
     const files = dedupeFilesByName(inputFiles.map(cleanFile).filter(Boolean));
+    const skippedCount = inputFiles.length - files.length;
     const device = await ensureDevice(deviceName);
     const source = await ensureSource(device.id, sourceName, pathLabel);
     const now = new Date().toISOString();
+    const favoriteNames = resetSource
+      ? await existingFavoriteNames(device.id, source.id)
+      : new Set();
 
     if (resetSource) {
       await supabaseRequest(
@@ -45,6 +49,7 @@ module.exports = async function handler(req, res) {
         ...file,
         device_id: device.id,
         source_id: source.id,
+        is_favorite: favoriteNames.has(file.filename),
         last_seen_at: now,
       }));
       if (chunk.length) {
@@ -77,7 +82,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    return sendJson(res, 200, { count: sourcePatch.file_count, batchCount: files.length });
+    return sendJson(res, 200, { count: sourcePatch.file_count, batchCount: files.length, skippedCount });
   } catch (error) {
     return sendJson(res, error.statusCode || 500, { error: error.message });
   }
@@ -87,4 +92,11 @@ function dedupeFilesByName(files) {
   const byName = new Map();
   for (const file of files) byName.set(file.filename, file);
   return Array.from(byName.values());
+}
+
+async function existingFavoriteNames(deviceId, sourceId) {
+  const rows = await supabaseRequest(
+    `/files?device_id=eq.${encodeURIComponent(deviceId)}&source_id=eq.${encodeURIComponent(sourceId)}&is_favorite=eq.true&select=filename`
+  );
+  return new Set(rows.map((row) => row.filename));
 }

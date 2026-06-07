@@ -28,6 +28,7 @@ create table if not exists public.files (
   size_bytes bigint,
   mtime timestamptz,
   code text,
+  is_favorite boolean not null default false,
   last_seen_at timestamptz not null default now()
 );
 
@@ -37,6 +38,8 @@ create index if not exists files_filename_trgm_idx on public.files using gin (fi
 create unique index if not exists files_device_filename_unique on public.files (device_id, filename);
 
 alter table public.sources add column if not exists file_count integer not null default 0;
+alter table public.files add column if not exists is_favorite boolean not null default false;
+create index if not exists files_favorite_idx on public.files (is_favorite, last_seen_at desc);
 
 update public.sources
 set file_count = counts.file_count

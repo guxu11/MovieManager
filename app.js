@@ -295,30 +295,43 @@ async function syncWithDirectoryPicker() {
     const dirHandle = await window.showDirectoryPicker({ mode: "read" });
     applySelectedDirectoryName(dirHandle.name);
     const files = [];
-    await walkDirectoryHandle(dirHandle, "", files);
-    await syncFiles(files, "picker");
+    const scanStats = createScanStats();
+    await walkDirectoryHandle(dirHandle, "", files, scanStats);
+    await syncFiles(files, "picker", { scanStats });
   } catch (error) {
     if (error.name === "AbortError") return;
     setSyncStatus(`扫描失败：${error.message}`);
   }
 }
 
-async function walkDirectoryHandle(dirHandle, prefix, files) {
+async function walkDirectoryHandle(dirHandle, prefix, files, stats = createScanStats()) {
   for await (const [name, handle] of dirHandle.entries()) {
     if (name.startsWith(".")) continue;
     const relativePath = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === "directory") {
-      await walkDirectoryHandle(handle, relativePath, files);
+      await walkDirectoryHandle(handle, relativePath, files, stats);
       continue;
     }
-    if (!isVideoFile(name)) continue;
-    const file = await handle.getFile();
+    stats.seen += 1;
+    let file;
+    try {
+      file = await handle.getFile();
+    } catch (error) {
+      stats.readErrorCount += 1;
+      rememberSample(stats.readErrorSamples, `${relativePath}: ${error.message || "读取失败"}`);
+      continue;
+    }
+    if (!isVideoFile(file.name || name)) {
+      stats.skippedCount += 1;
+      rememberSample(stats.skippedSamples, relativePath);
+      continue;
+    }
     files.push({ file, relativePath });
     if (files.length % 500 === 0) setSyncStatus(`已扫描 ${files.length} 个视频文件...`);
   }
 }
 
-async function syncFiles(inputFiles, mode) {
+async function syncFiles(inputFiles, mode, options = {}) {
   const deviceName = els.deviceName.value.trim();
   const sourceName = els.sourceName.value.trim() || "Selected Directory";
   const pathLabel = els.pathLabel.value.trim();
@@ -329,18 +342,40 @@ async function syncFiles(inputFiles, mode) {
   }
 
   rememberSyncForm();
-  const rows = dedupeFilesByName(inputFiles
-    .map((entry) => normalizeFileEntry(entry, mode))
-    .filter((entry) => entry && isVideoFile(entry.filename)));
+  const normalized = inputFiles.map((entry) => normalizeFileEntry(entry, mode)).filter(Boolean);
+  const skipped = normalized.filter((entry) => !isVideoFile(entry.filename));
+  const rows = dedupeFilesByName(normalized.filter((entry) => isVideoFile(entry.filename)));
 
-  setSyncStatus(`准备同步 ${rows.length} 个视频文件...`);
+  const scanText = syncScanText(options.scanStats, skipped);
+  setSyncStatus(`准备同步 ${rows.length} 个视频文件${scanText}...`);
 
   try {
     const result = await store.replaceSourceSnapshot({ deviceName, sourceName, pathLabel, files: rows });
-    setSyncStatus(`同步完成：${result.count} 个文件已更新到 ${deviceName} / ${sourceName}。`);
+    const skippedText = result.skippedCount ? `，跳过 ${result.skippedCount} 个文件` : "";
+    setSyncStatus(`同步完成：${result.count} 个文件已更新到 ${deviceName} / ${sourceName}${skippedText}。`);
   } catch (error) {
     setSyncStatus(`同步失败：${error.message}`);
   }
+}
+
+function createScanStats() {
+  return { seen: 0, skippedCount: 0, skippedSamples: [], readErrorCount: 0, readErrorSamples: [] };
+}
+
+function rememberSample(samples, value) {
+  if (samples.length < 5) samples.push(value);
+}
+
+function syncScanText(scanStats, skipped) {
+  const skippedCount = scanStats ? scanStats.skippedCount : skipped.length;
+  const readErrorCount = scanStats ? scanStats.readErrorCount : 0;
+  if (!skippedCount && !readErrorCount) return "";
+  const samples = [
+    ...(scanStats?.skippedSamples || skipped.map((entry) => entry.relative_path)).slice(0, 2),
+    ...(scanStats?.readErrorSamples || []).slice(0, 2),
+  ];
+  const sampleText = samples.length ? `，示例：${samples.join(" / ")}` : "";
+  return `，扫描文件 ${scanStats?.seen ?? skipped.length} 个，跳过 ${skippedCount} 个，读取失败 ${readErrorCount} 个${sampleText}`;
 }
 
 function applySelectedDirectoryName(directoryName) {
@@ -483,14 +518,15 @@ function createApiStore({ apiBaseUrl = "" }) {
             processedCount: 0,
           }),
         });
-        return { count: 0 };
+        return { count: 0, skippedCount: 0 };
       }
 
       let processed = 0;
+      let skippedCount = 0;
       for (let i = 0; i < files.length; i += REMOTE_SYNC_CHUNK_SIZE) {
         const chunk = files.slice(i, i + REMOTE_SYNC_CHUNK_SIZE);
         processed += chunk.length;
-        await request("/api/sync", {
+        const result = await request("/api/sync", {
           method: "POST",
           body: JSON.stringify({
             deviceName,
@@ -503,9 +539,10 @@ function createApiStore({ apiBaseUrl = "" }) {
             totalCount: files.length,
           }),
         });
+        skippedCount += result?.skippedCount || 0;
         setSyncStatus(`正在上传 ${processed}/${files.length} 个视频文件...`);
       }
-      return { count: processed };
+      return { count: processed - skippedCount, skippedCount };
     },
 
     async search(query) {
@@ -568,7 +605,7 @@ function createDemoStore() {
       });
       db.files.push(...files.map((file) => ({ ...file, id: id(), device_id: device.id, source_id: source.id, last_seen_at: now })));
       writeDb(db);
-      return { count: files.length };
+      return { count: files.length, skippedCount: 0 };
     },
 
     async search(query) {
@@ -614,17 +651,22 @@ function attachDemoRelations(db, file) {
 }
 
 function isVideoFile(filename) {
-  if (!filename || filename.startsWith(".") || !filename.includes(".")) return false;
-  const ext = filename.split(".").pop().toLowerCase();
-  return VIDEO_SUFFIXES.has(ext);
+  return VIDEO_SUFFIXES.has(videoExtension(filename));
 }
 
 function extractCode(filename) {
-  const base = filename.replace(/\.[^.]+$/, "");
+  const base = String(filename || "").trim().replace(/[?？\s]+$/u, "").replace(/\.[^.]+$/, "");
   const match = base.match(/(?:^|[^a-z0-9])([a-z]{2,8})[\s._-]*0*([0-9]{2,6})(?:[^a-z0-9]|$)/i)
     || base.match(/^([a-z]{2,8})0*([0-9]{2,6})$/i);
   if (!match) return null;
   return `${match[1].toUpperCase()}-${match[2]}`;
+}
+
+function videoExtension(filename) {
+  const text = String(filename || "").trim().replace(/[?？\s]+$/u, "");
+  if (!text || text.startsWith(".") || !text.includes(".")) return "";
+  const match = text.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
 }
 
 function queryTokens(query) {
@@ -635,7 +677,9 @@ function queryTokens(query) {
 
 function matchesQueryTokens(filename, tokens) {
   const text = String(filename || "").toLowerCase();
+  const compactText = text.replace(/[^a-z0-9]+/g, "");
   if (tokens.compact && text.includes(tokens.compact)) return true;
+  if (tokens.compact && compactText.includes(tokens.compact)) return true;
   return tokens.parts.length > 0 && tokens.parts.every((token) => text.includes(token));
 }
 

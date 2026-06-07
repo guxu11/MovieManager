@@ -19,6 +19,7 @@ const els = {
   tabs: document.querySelectorAll(".tab"),
   views: {
     search: document.querySelector("#searchTab"),
+    favorites: document.querySelector("#favoritesTab"),
     sync: document.querySelector("#syncTab"),
     sources: document.querySelector("#sourcesTab"),
   },
@@ -26,13 +27,16 @@ const els = {
   searchInput: document.querySelector("#searchInput"),
   searchMeta: document.querySelector("#searchMeta"),
   results: document.querySelector("#results"),
+  favoritesList: document.querySelector("#favoritesList"),
   deviceName: document.querySelector("#deviceName"),
   sourceName: document.querySelector("#sourceName"),
   pathLabel: document.querySelector("#pathLabel"),
   pickDirectory: document.querySelector("#pickDirectory"),
+  helperScanDirectory: document.querySelector("#helperScanDirectory"),
   directoryInput: document.querySelector("#directoryInput"),
   syncStatus: document.querySelector("#syncStatus"),
   refreshSources: document.querySelector("#refreshSources"),
+  refreshFavorites: document.querySelector("#refreshFavorites"),
   sourcesList: document.querySelector("#sourcesList"),
   resultTemplate: document.querySelector("#resultTemplate"),
 };
@@ -83,6 +87,7 @@ function init() {
   });
 
   els.pickDirectory.addEventListener("click", syncWithDirectoryPicker);
+  els.helperScanDirectory.addEventListener("click", syncWithNativeHelper);
   els.directoryInput.addEventListener("change", async () => {
     if (!els.directoryInput.files.length) return;
     const files = Array.from(els.directoryInput.files);
@@ -91,6 +96,7 @@ function init() {
     els.directoryInput.value = "";
   });
   els.refreshSources.addEventListener("click", renderSources);
+  els.refreshFavorites.addEventListener("click", renderFavorites);
 }
 
 function loadSettings() {
@@ -169,6 +175,7 @@ function showTab(name) {
   els.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   Object.entries(els.views).forEach(([key, view]) => view.classList.toggle("hidden", key !== name));
   if (name === "sources") renderSources();
+  if (name === "favorites") renderFavorites();
 }
 
 async function runSearch() {
@@ -200,34 +207,94 @@ function renderResults(rows) {
   }
 
   for (const row of rows) {
-    const node = els.resultTemplate.content.firstElementChild.cloneNode(true);
-    const title = node.querySelector("h3");
-    const subtitle = node.querySelector(".muted");
-    const path = node.querySelector(".result-path");
-    const footer = node.querySelector(".result-footer");
-    const source = row.sources || {};
-    const device = source.devices || {};
-    const displayPath = joinDisplayPath(source.path_label, row.relative_path);
-    const canOpenLocal = extensionState.installed && displayPath && displayPath !== row.relative_path;
-
-    title.textContent = row.code || extractCode(row.filename) || "未识别番号";
-    subtitle.textContent = `${device.name || row.device_name || "未知设备"} / ${source.name || row.source_name || "未知目录"}`;
-    path.textContent = displayPath || row.relative_path || row.filename;
-    footer.innerHTML = "";
-    footer.append(metaItem(row.filename));
-    footer.append(metaItem(formatBytes(row.size_bytes)));
-    footer.append(metaItem(`修改：${formatDate(row.mtime)}`));
-    footer.append(metaItem(`同步：${formatDate(row.last_seen_at || source.last_sync_at)}`));
-    if (canOpenLocal) {
-      const openButton = document.createElement("button");
-      openButton.className = "small-button";
-      openButton.type = "button";
-      openButton.textContent = "本机打开";
-      openButton.addEventListener("click", () => requestLocalOpen(row, displayPath));
-      footer.append(openButton);
-    }
-    els.results.append(node);
+    els.results.append(renderResultCard(row, els.results));
   }
+}
+
+function renderResultCard(row, ownerList) {
+  const node = els.resultTemplate.content.firstElementChild.cloneNode(true);
+  const title = node.querySelector("h3");
+  const subtitle = node.querySelector(".muted");
+  const path = node.querySelector(".result-path");
+  const footer = node.querySelector(".result-footer");
+  const actions = node.querySelector(".result-actions");
+  const source = row.sources || {};
+  const device = source.devices || {};
+  const displayPath = joinDisplayPath(source.path_label, row.relative_path);
+  const canOpenLocal = extensionState.installed && displayPath && displayPath !== row.relative_path;
+
+  title.textContent = row.code || extractCode(row.filename) || "未识别番号";
+  subtitle.textContent = `${device.name || row.device_name || "未知设备"} / ${source.name || row.source_name || "未知目录"}`;
+  path.textContent = displayPath || row.relative_path || row.filename;
+  footer.innerHTML = "";
+  actions.innerHTML = "";
+  footer.append(metaItem(row.filename));
+  footer.append(metaItem(formatBytes(row.size_bytes)));
+  footer.append(metaItem(`修改：${formatDate(row.mtime)}`));
+  footer.append(metaItem(`同步：${formatDate(row.last_seen_at || source.last_sync_at)}`));
+
+  const favoriteButton = document.createElement("button");
+  favoriteButton.className = row.is_favorite ? "icon-action favorite-active" : "icon-action";
+  favoriteButton.type = "button";
+  favoriteButton.textContent = row.is_favorite ? "★" : "☆";
+  favoriteButton.title = row.is_favorite ? "取消精品" : "标为精品";
+  favoriteButton.setAttribute("aria-label", favoriteButton.title);
+  favoriteButton.dataset.tooltip = favoriteButton.title;
+  favoriteButton.addEventListener("click", () => toggleFavorite(row, node, ownerList));
+  actions.append(favoriteButton);
+
+  if (canOpenLocal) {
+    const openButton = document.createElement("button");
+    openButton.className = "icon-action";
+    openButton.type = "button";
+    openButton.textContent = "▶";
+    openButton.title = "本机打开";
+    openButton.setAttribute("aria-label", "本机打开");
+    openButton.dataset.tooltip = "本机打开";
+    openButton.addEventListener("click", () => requestLocalOpen(row, displayPath));
+    actions.append(openButton);
+  }
+  return node;
+}
+
+async function toggleFavorite(row, node, ownerList) {
+  try {
+    const next = !row.is_favorite;
+    const updated = await store.setFavorite(row.id, next);
+    row.is_favorite = Boolean(updated?.is_favorite ?? next);
+    const replacement = renderResultCard(row, ownerList);
+    node.replaceWith(replacement);
+    if (!row.is_favorite && ownerList === els.favoritesList) {
+      replacement.remove();
+      if (!els.favoritesList.children.length) renderFavoritesEmpty();
+    }
+  } catch (error) {
+    els.searchMeta.textContent = `精品标记失败：${error.message}`;
+  }
+}
+
+async function renderFavorites() {
+  els.favoritesList.replaceChildren();
+  try {
+    const rows = await store.listFavorites();
+    if (!rows.length) {
+      renderFavoritesEmpty();
+      return;
+    }
+    for (const row of rows) {
+      els.favoritesList.append(renderResultCard(row, els.favoritesList));
+    }
+  } catch (error) {
+    renderFavoritesEmpty(`加载失败：${error.message}`);
+  }
+}
+
+function renderFavoritesEmpty(text = "还没有精品。") {
+  els.favoritesList.replaceChildren();
+  const empty = document.createElement("div");
+  empty.className = "empty-state";
+  empty.textContent = text;
+  els.favoritesList.append(empty);
 }
 
 function isCurrentDevice(deviceName) {
@@ -321,6 +388,11 @@ function metaItem(text) {
 }
 
 async function syncWithDirectoryPicker() {
+  if (looksLikeAbsolutePath(els.pathLabel.value.trim()) && extensionState.installed) {
+    await syncWithNativeHelper();
+    return;
+  }
+
   if (!window.showDirectoryPicker) {
     toast("当前浏览器不支持目录选择器，请使用兼容模式。");
     return;
@@ -330,24 +402,86 @@ async function syncWithDirectoryPicker() {
     const dirHandle = await window.showDirectoryPicker({ mode: "read" });
     applySelectedDirectoryName(dirHandle.name);
     const files = [];
-    await walkDirectoryHandle(dirHandle, "", files);
-    await syncFiles(files, "picker", { dirHandle });
+    const scanStats = createScanStats();
+    await walkDirectoryHandle(dirHandle, "", files, scanStats);
+    await syncFiles(files, "picker", { dirHandle, scanStats });
   } catch (error) {
     if (error.name === "AbortError") return;
     setSyncStatus(describeDirectoryPickerError(error));
   }
 }
 
-async function walkDirectoryHandle(dirHandle, prefix, files) {
+async function syncWithNativeHelper() {
+  const pathLabel = els.pathLabel.value.trim();
+  if (!pathLabel) {
+    setSyncStatus("请先在高级选项的路径备注里填写绝对路径。");
+    return;
+  }
+  if (!extensionState.installed) {
+    setSyncStatus("没有检测到扩展后台，无法调用本机 Helper。");
+    return;
+  }
+
+  setSyncStatus("正在通过本机 Helper 扫描路径...");
+  const response = await sendExtensionMessage({
+    type: "MOVIE_MANAGER_SCAN_DIRECTORY",
+    path: pathLabel,
+  });
+  if (!response?.ok) {
+    setSyncStatus(response?.error || "本机 Helper 扫描失败。");
+    return;
+  }
+
+  if (!els.sourceName.value.trim()) {
+    const parts = pathLabel.split(/[\\/]+/).filter(Boolean);
+    els.sourceName.value = parts[parts.length - 1] || "Selected Directory";
+  }
+  await syncNativeScanResponse(response, {});
+}
+
+async function syncNativeScanResponse(response, options) {
+  return syncFiles(response.files || [], "native", {
+    ...options,
+    scanStats: scanStatsFromNativeResponse(response),
+  });
+}
+
+function scanStatsFromNativeResponse(response) {
+  return {
+    seen: response.seen || 0,
+    skippedCount: response.skippedCount || 0,
+    skippedSamples: response.skippedSamples || [],
+    readErrorCount: response.readErrorCount || 0,
+    readErrorSamples: response.readErrorSamples || [],
+  };
+}
+
+function looksLikeAbsolutePath(path) {
+  return Boolean(path && (/^\//.test(path) || /^[a-z]:[\\/]/i.test(path)));
+}
+
+async function walkDirectoryHandle(dirHandle, prefix, files, stats = createScanStats()) {
   for await (const [name, handle] of dirHandle.entries()) {
     if (name.startsWith(".")) continue;
     const relativePath = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === "directory") {
-      await walkDirectoryHandle(handle, relativePath, files);
+      await walkDirectoryHandle(handle, relativePath, files, stats);
       continue;
     }
-    if (!isVideoFile(name)) continue;
-    const file = await handle.getFile();
+    stats.seen += 1;
+    let file;
+    try {
+      file = await handle.getFile();
+    } catch (error) {
+      stats.readErrorCount += 1;
+      rememberSample(stats.readErrorSamples, `${relativePath}: ${error.message || "读取失败"}`);
+      continue;
+    }
+    if (!isVideoFile(file.name || name)) {
+      stats.skippedCount += 1;
+      rememberSample(stats.skippedSamples, relativePath);
+      continue;
+    }
     files.push({ file, relativePath });
     if (files.length % 500 === 0) setSyncStatus(`已扫描 ${files.length} 个视频文件...`);
   }
@@ -364,21 +498,43 @@ async function syncFiles(inputFiles, mode, options = {}) {
   }
 
   if (!options.skipRemember) rememberSyncForm();
-  const rows = dedupeFilesByName(inputFiles
-    .map((entry) => normalizeFileEntry(entry, mode))
-    .filter((entry) => entry && isVideoFile(entry.filename)));
+  const normalized = inputFiles.map((entry) => normalizeFileEntry(entry, mode)).filter(Boolean);
+  const skipped = normalized.filter((entry) => !isVideoFile(entry.filename));
+  const rows = dedupeFilesByName(normalized.filter((entry) => isVideoFile(entry.filename)));
 
-  setSyncStatus(`准备同步 ${rows.length} 个视频文件...`);
+  const scanText = syncScanText(options.scanStats, skipped);
+  setSyncStatus(`准备同步 ${rows.length} 个视频文件${scanText}...`);
 
   try {
     const result = await store.replaceSourceSnapshot({ deviceName, sourceName, pathLabel, files: rows });
     if (options.dirHandle) await saveSourceHandle(deviceName, sourceName, options.dirHandle);
-    setSyncStatus(`同步完成：${result.count} 个文件已更新到 ${deviceName} / ${sourceName}。`);
+    const skippedText = result.skippedCount ? `，跳过 ${result.skippedCount} 个文件` : "";
+    setSyncStatus(`同步完成：${result.count} 个文件已更新到 ${deviceName} / ${sourceName}${skippedText}。`);
     return result;
   } catch (error) {
     setSyncStatus(`同步失败：${error.message}`);
     return null;
   }
+}
+
+function createScanStats() {
+  return { seen: 0, skippedCount: 0, skippedSamples: [], readErrorCount: 0, readErrorSamples: [] };
+}
+
+function rememberSample(samples, value) {
+  if (samples.length < 5) samples.push(value);
+}
+
+function syncScanText(scanStats, skipped) {
+  const skippedCount = scanStats ? scanStats.skippedCount : skipped.length;
+  const readErrorCount = scanStats ? scanStats.readErrorCount : 0;
+  if (!skippedCount && !readErrorCount) return "";
+  const samples = [
+    ...(scanStats?.skippedSamples || skipped.map((entry) => entry.relative_path)).slice(0, 2),
+    ...(scanStats?.readErrorSamples || []).slice(0, 2),
+  ];
+  const sampleText = samples.length ? `，示例：${samples.join(" / ")}` : "";
+  return `，扫描文件 ${scanStats?.seen ?? skipped.length} 个，跳过 ${skippedCount} 个，读取失败 ${readErrorCount} 个${sampleText}`;
 }
 
 function applySelectedDirectoryName(directoryName) {
@@ -393,6 +549,7 @@ function getRootDirectoryName(files) {
 }
 
 function normalizeFileEntry(entry, mode) {
+  if (mode === "native") return entry;
   const file = mode === "picker" ? entry.file : entry;
   const relativePath = mode === "picker"
     ? entry.relativePath
@@ -464,6 +621,28 @@ async function renderSources() {
 
 async function resyncSource(source, metaNode) {
   const deviceName = source.devices?.name || source.device_name || "";
+  const pathLabel = String(source.path_label || "").trim();
+
+  if (looksLikeAbsolutePath(pathLabel) && extensionState.installed) {
+    metaNode.textContent = "正在通过本机 Helper 扫描路径...";
+    const response = await sendExtensionMessage({
+      type: "MOVIE_MANAGER_SCAN_DIRECTORY",
+      path: pathLabel,
+    });
+    if (!response?.ok) {
+      metaNode.textContent = response?.error || "本机 Helper 扫描失败。";
+      return;
+    }
+    const result = await syncNativeScanResponse(response, {
+      deviceName,
+      sourceName: source.name,
+      pathLabel,
+      skipRemember: true,
+    });
+    if (!result) return;
+    metaNode.textContent = `文件数：${result.count || 0}　上次同步：${formatDate(new Date().toISOString())}`;
+    return;
+  }
 
   let dirHandle = await getSourceHandle(deviceName, source.name);
   if (!dirHandle) {
@@ -494,12 +673,14 @@ async function resyncSource(source, metaNode) {
 
     metaNode.textContent = "一键同步中...";
     const files = [];
-    await walkDirectoryHandle(dirHandle, "", files);
+    const scanStats = createScanStats();
+    await walkDirectoryHandle(dirHandle, "", files, scanStats);
     const result = await syncFiles(files, "picker", {
       deviceName,
       sourceName: source.name,
       pathLabel: source.path_label || "",
       skipRemember: true,
+      scanStats,
     });
     if (!result) return;
     metaNode.textContent = `文件数：${result.count || 0}　上次同步：${formatDate(new Date().toISOString())}`;
@@ -641,14 +822,15 @@ function createApiStore({ apiBaseUrl = "" }) {
             processedCount: 0,
           }),
         });
-        return { count: 0 };
+        return { count: 0, skippedCount: 0 };
       }
 
       let processed = 0;
+      let skippedCount = 0;
       for (let i = 0; i < files.length; i += REMOTE_SYNC_CHUNK_SIZE) {
         const chunk = files.slice(i, i + REMOTE_SYNC_CHUNK_SIZE);
         processed += chunk.length;
-        await request("/api/sync", {
+        const result = await request("/api/sync", {
           method: "POST",
           body: JSON.stringify({
             deviceName,
@@ -661,13 +843,25 @@ function createApiStore({ apiBaseUrl = "" }) {
             totalCount: files.length,
           }),
         });
+        skippedCount += result?.skippedCount || 0;
         setSyncStatus(`正在上传 ${processed}/${files.length} 个视频文件...`);
       }
-      return { count: processed };
+      return { count: processed - skippedCount, skippedCount };
     },
 
     async search(query) {
       return request(`/api/search?q=${encodeURIComponent(query)}`);
+    },
+
+    async listFavorites() {
+      return request("/api/favorites");
+    },
+
+    async setFavorite(fileId, isFavorite) {
+      return request("/api/favorites", {
+        method: "PATCH",
+        body: JSON.stringify({ fileId, isFavorite }),
+      });
     },
 
     async listSources() {
@@ -718,15 +912,25 @@ function createDemoStore() {
       source.last_sync_at = now;
       source.file_count = files.length;
       device.last_sync_at = now;
+      const favoriteNames = new Set(db.files
+        .filter((file) => file.device_id === device.id && file.source_id === source.id && file.is_favorite)
+        .map((file) => file.filename));
       const incomingNames = new Set(files.map((file) => file.filename));
       db.files = db.files.filter((file) => {
         if (file.device_id !== device.id) return true;
         if (file.source_id === source.id) return false;
         return !incomingNames.has(file.filename);
       });
-      db.files.push(...files.map((file) => ({ ...file, id: id(), device_id: device.id, source_id: source.id, last_seen_at: now })));
+      db.files.push(...files.map((file) => ({
+        ...file,
+        id: id(),
+        device_id: device.id,
+        source_id: source.id,
+        is_favorite: favoriteNames.has(file.filename),
+        last_seen_at: now,
+      })));
       writeDb(db);
-      return { count: files.length };
+      return { count: files.length, skippedCount: 0 };
     },
 
     async search(query) {
@@ -740,6 +944,23 @@ function createDemoStore() {
         })
         .map((file) => attachDemoRelations(db, file));
       return files.sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+    },
+
+    async listFavorites() {
+      const db = readDb();
+      return db.files
+        .filter((file) => file.is_favorite)
+        .map((file) => attachDemoRelations(db, file))
+        .sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+    },
+
+    async setFavorite(fileId, isFavorite) {
+      const db = readDb();
+      const file = db.files.find((item) => item.id === fileId);
+      if (!file) throw new Error("File not found");
+      file.is_favorite = Boolean(isFavorite);
+      writeDb(db);
+      return attachDemoRelations(db, file);
     },
 
     async listSources() {
@@ -772,17 +993,22 @@ function attachDemoRelations(db, file) {
 }
 
 function isVideoFile(filename) {
-  if (!filename || filename.startsWith(".") || !filename.includes(".")) return false;
-  const ext = filename.split(".").pop().toLowerCase();
-  return VIDEO_SUFFIXES.has(ext);
+  return VIDEO_SUFFIXES.has(videoExtension(filename));
 }
 
 function extractCode(filename) {
-  const base = filename.replace(/\.[^.]+$/, "");
+  const base = String(filename || "").trim().replace(/[?？\s]+$/u, "").replace(/\.[^.]+$/, "");
   const match = base.match(/(?:^|[^a-z0-9])([a-z]{2,8})[\s._-]*0*([0-9]{2,6})(?:[^a-z0-9]|$)/i)
     || base.match(/^([a-z]{2,8})0*([0-9]{2,6})$/i);
   if (!match) return null;
   return `${match[1].toUpperCase()}-${match[2]}`;
+}
+
+function videoExtension(filename) {
+  const text = String(filename || "").trim().replace(/[?？\s]+$/u, "");
+  if (!text || text.startsWith(".") || !text.includes(".")) return "";
+  const match = text.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
 }
 
 function queryTokens(query) {
@@ -793,7 +1019,9 @@ function queryTokens(query) {
 
 function matchesQueryTokens(filename, tokens) {
   const text = String(filename || "").toLowerCase();
+  const compactText = text.replace(/[^a-z0-9]+/g, "");
   if (tokens.compact && text.includes(tokens.compact)) return true;
+  if (tokens.compact && compactText.includes(tokens.compact)) return true;
   return tokens.parts.length > 0 && tokens.parts.every((token) => text.includes(token));
 }
 

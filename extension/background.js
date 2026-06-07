@@ -18,7 +18,28 @@ async function handleMessage(message) {
     return checkNativeHelper();
   }
 
+  if (message?.type === "MOVIE_MANAGER_SCAN_DIRECTORY") {
+    return scanDirectory(message.path);
+  }
+
   return { ok: false, error: "Unknown message type" };
+}
+
+async function scanDirectory(path) {
+  if (!path) return { ok: false, error: "Missing directory path" };
+
+  try {
+    return await sendNativeMessage({
+      type: "SCAN_DIRECTORY",
+      path,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Native helper 调用失败：${error.message}`,
+      detail: error.message,
+    };
+  }
 }
 
 async function checkNativeHelper() {

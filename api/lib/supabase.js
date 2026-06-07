@@ -52,17 +52,22 @@ function safeText(value, maxLength) {
 }
 
 function isVideoFile(filename) {
-  if (!filename || filename.startsWith(".") || !filename.includes(".")) return false;
-  const ext = filename.split(".").pop().toLowerCase();
-  return VIDEO_SUFFIXES.has(ext);
+  return VIDEO_SUFFIXES.has(videoExtension(filename));
 }
 
 function extractCode(filename) {
-  const base = String(filename || "").replace(/\.[^.]+$/, "");
+  const base = String(filename || "").trim().replace(/[?？\s]+$/u, "").replace(/\.[^.]+$/, "");
   const match = base.match(/(?:^|[^a-z0-9])([a-z]{2,8})[\s._-]*0*([0-9]{2,6})(?:[^a-z0-9]|$)/i)
     || base.match(/^([a-z]{2,8})0*([0-9]{2,6})$/i);
   if (!match) return null;
   return `${match[1].toUpperCase()}-${match[2]}`;
+}
+
+function videoExtension(filename) {
+  const text = String(filename || "").trim().replace(/[?？\s]+$/u, "");
+  if (!text || text.startsWith(".") || !text.includes(".")) return "";
+  const match = text.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : "";
 }
 
 function normalizeCode(text) {
