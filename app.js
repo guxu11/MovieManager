@@ -161,7 +161,7 @@ function showTab(name) {
 async function runSearch() {
   const query = els.searchInput.value.trim();
   if (!query) {
-    renderEmpty("输入一个番号或文件名。");
+    renderEmpty("输入关键词或文件名。");
     return;
   }
 
@@ -170,7 +170,7 @@ async function runSearch() {
     const rows = await store.search(query);
     const code = normalizeCode(query);
     els.searchMeta.textContent = code
-      ? `已按 ${code} 搜索，找到 ${rows.length} 个位置。`
+      ? `已按关键词搜索，找到 ${rows.length} 个位置。`
       : `已按文件名搜索，找到 ${rows.length} 个候选。`;
     renderResults(rows);
   } catch (error) {
@@ -197,7 +197,7 @@ function renderResults(rows) {
     const displayPath = joinDisplayPath(source.path_label, row.relative_path);
     const canOpenLocal = extensionState.installed && isCurrentDevice(device.name || row.device_name);
 
-    title.textContent = row.code || extractCode(row.filename) || "未识别番号";
+    title.textContent = row.code || extractCode(row.filename) || "未匹配编号";
     subtitle.textContent = `${device.name || row.device_name || "未知设备"} / ${source.name || row.source_name || "未知目录"}`;
     path.textContent = displayPath || row.relative_path || row.filename;
     footer.innerHTML = "";

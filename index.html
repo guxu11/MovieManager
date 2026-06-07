@@ -11,7 +11,7 @@
       <header class="topbar">
         <div>
           <h1>Movie Manager</h1>
-          <p>搜索番号，确认文件在哪台设备和目录下。</p>
+          <p>搜索关键词，确认文件在哪台设备和目录下。</p>
         </div>
         <button id="settingsToggle" class="icon-button" title="同步设置" aria-label="同步设置">⚙</button>
       </header>
@@ -42,10 +42,10 @@
       <section id="searchTab" class="view">
         <div class="panel search-panel">
           <form id="searchForm" class="search-row">
-            <input id="searchInput" type="search" placeholder="输入 ABC-123 / abc123 / 文件名" autocomplete="off">
+            <input id="searchInput" type="search" placeholder="输入关键词或文件名" autocomplete="off">
             <button class="primary-button" type="submit">搜索</button>
           </form>
-          <div id="searchMeta" class="muted">输入番号后会优先精确匹配，找不到时再按文件名候选。</div>
+          <div id="searchMeta" class="muted">支持关键词和文件名片段。</div>
         </div>
         <div id="results" class="results"></div>
       </section>

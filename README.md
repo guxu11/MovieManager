@@ -1,13 +1,13 @@
 # Movie Manager
 
-一个轻量的电影位置索引网站：在任意设备上打开网站，选择本机目录同步文件名；搜索番号时显示文件在哪台设备、哪个目录下。
+一个轻量的电影位置索引网站：在任意设备上打开网站，选择本机目录同步文件名；搜索关键词时显示文件在哪台设备、哪个目录下。
 
 ## 功能
 
-- 搜索番号，例如 `ABC-123`、`abc123`、`ABC 123`
+- 搜索关键词或文件名片段
 - 在浏览器里选择目录并同步视频文件索引
 - 显示设备名、目录名、路径备注、相对路径、文件大小、上次同步时间
-- 不上传电影文件，只上传文件名、相对路径、大小、修改时间和提取出的番号
+- 不上传电影文件，只上传文件名、相对路径、大小、修改时间和可搜索索引
 - 支持 Vercel API + Supabase 云端存储；本地静态预览时使用浏览器本地 demo 存储
 
 ## 本地运行
@@ -41,6 +41,16 @@ http://localhost:4173
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=你的 service_role key
 ```
+
+可选：如果要启用 DeepL 跨语言翻译搜索，再配置：
+
+```text
+DEEPL_API_KEY=你的 DeepL API key
+```
+
+DeepL Free key 通常以 `:fx` 结尾，后端会自动使用 `https://api-free.deepl.com`；Pro key 默认使用 `https://api.deepl.com`。如需手动指定 endpoint，可额外配置 `DEEPL_API_URL`。
+
+搜索会优先使用服务端维护的中 / 英 / 日关键词词典；只有词典无法覆盖当前搜索词时，才调用 DeepL 兜底，以减少 API 用量。
 
 扩展默认直连当前项目的 Vercel API。换域名时，可以在扩展设置里覆盖 API Base URL。
 

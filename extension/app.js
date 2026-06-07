@@ -5,6 +5,8 @@ const LOCAL_DEVICE_ID_KEY = "movie-manager:local-device-id";
 const HANDLE_DB_NAME = "movie-manager-handles";
 const HANDLE_STORE_NAME = "source-handles";
 const REMOTE_SYNC_CHUNK_SIZE = 500;
+const SEARCH_CACHE_KEY = "movie-manager:last-search";
+const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_API_BASE_URL = "https://moviemanager-rho.vercel.app";
 
 const els = {
@@ -25,8 +27,14 @@ const els = {
   },
   searchForm: document.querySelector("#searchForm"),
   searchInput: document.querySelector("#searchInput"),
+  clearSearch: document.querySelector("#clearSearch"),
   searchMeta: document.querySelector("#searchMeta"),
   results: document.querySelector("#results"),
+  searchPagination: document.querySelector("#searchPagination"),
+  prevSearchPage: document.querySelector("#prevSearchPage"),
+  nextSearchPage: document.querySelector("#nextSearchPage"),
+  searchPageStatus: document.querySelector("#searchPageStatus"),
+  searchPageButtons: document.querySelector("#searchPageButtons"),
   favoritesList: document.querySelector("#favoritesList"),
   deviceName: document.querySelector("#deviceName"),
   sourceName: document.querySelector("#sourceName"),
@@ -43,6 +51,8 @@ const els = {
 
 let store = createStore(loadSettings());
 let extensionState = { installed: false };
+const favoriteStateOverrides = new Map();
+let searchPageState = { query: "", page: 0, total: 0, totalPages: 1, hasMore: false };
 
 init();
 
@@ -52,6 +62,7 @@ function init() {
   updateStorageMode();
   restoreSyncForm();
   detectExtension();
+  restoreSearchState();
 
   els.settingsToggle.addEventListener("click", () => {
     els.settingsPanel.classList.toggle("hidden");
@@ -83,8 +94,11 @@ function init() {
 
   els.searchForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await runSearch();
+    await runSearch({ reset: true });
   });
+  els.clearSearch.addEventListener("click", clearSearch);
+  els.prevSearchPage.addEventListener("click", () => changeSearchPage(-1));
+  els.nextSearchPage.addEventListener("click", () => changeSearchPage(1));
 
   els.pickDirectory.addEventListener("click", syncWithDirectoryPicker);
   els.helperScanDirectory.addEventListener("click", syncWithNativeHelper);
@@ -182,25 +196,125 @@ function showTab(name) {
   if (name === "favorites" && typeof renderFavorites === "function") renderFavorites();
 }
 
-async function runSearch() {
+function clearSearch() {
+  els.searchInput.value = "";
+  els.searchMeta.textContent = "支持多个关键词同时匹配。";
+  els.results.replaceChildren();
+  searchPageState = { query: "", page: 0, total: 0, totalPages: 1, hasMore: false };
+  renderPagination();
+  localStorage.removeItem(SEARCH_CACHE_KEY);
+  els.searchInput.focus();
+}
+
+async function runSearch({ reset = false, page = 0 } = {}) {
   const query = els.searchInput.value.trim();
   if (!query) {
-    renderEmpty("输入一个番号或文件名。");
+    searchPageState = { query: "", page: 0, total: 0, totalPages: 1, hasMore: false };
+    renderEmpty("输入关键词或文件名。");
+    renderPagination();
     return;
+  }
+
+  if (reset || query !== searchPageState.query) {
+    searchPageState = { query, page: 0, total: 0, totalPages: 1, hasMore: false };
+    page = 0;
   }
 
   els.searchMeta.textContent = "搜索中...";
   try {
-    const rows = await store.search(query);
+    const result = await store.search(query, page);
+    const rows = result.rows || [];
+    const total = Number.isFinite(Number(result.total)) ? Number(result.total) : rows.length;
+    const totalPages = Math.max(1, Number(result.totalPages) || Math.ceil(total / (result.pageSize || 10)) || 1);
+    const currentPage = Math.min(Number(result.page) || page, totalPages - 1);
+    searchPageState = {
+      query,
+      page: currentPage,
+      total,
+      totalPages,
+      hasMore: currentPage + 1 < totalPages,
+    };
     const code = normalizeCode(query);
     els.searchMeta.textContent = code
-      ? `已按 ${code} 搜索，找到 ${rows.length} 个位置。`
-      : `已按文件名搜索，找到 ${rows.length} 个候选。`;
+      ? `已按关键词搜索，共 ${total} 个位置。`
+      : `已按文件名搜索，共 ${total} 个候选。`;
     renderResults(rows);
+    renderPagination();
+    saveSearchState({
+      query,
+      rows,
+      meta: els.searchMeta.textContent,
+      pageState: searchPageState,
+      emptyText: rows.length ? "" : "没有找到。可以去同步页更新这台设备的目录索引。",
+    });
   } catch (error) {
     els.searchMeta.textContent = "搜索失败。";
     renderEmpty(error.message);
+    renderPagination();
+    saveSearchState({ query, rows: [], meta: els.searchMeta.textContent, pageState: searchPageState, emptyText: error.message });
   }
+}
+
+async function changeSearchPage(direction) {
+  const nextPage = searchPageState.page + direction;
+  if (nextPage < 0) return;
+  if (direction > 0 && !searchPageState.hasMore) return;
+  await runSearch({ page: nextPage });
+}
+
+async function goToSearchPage(page) {
+  if (page === searchPageState.page) return;
+  if (page < 0 || page >= searchPageState.totalPages) return;
+  await runSearch({ page });
+}
+
+function renderPagination() {
+  if (!els.searchPagination) return;
+  const hasPrevious = searchPageState.page > 0;
+  const hasNext = searchPageState.page + 1 < searchPageState.totalPages;
+  els.searchPagination.classList.toggle("hidden", searchPageState.total === 0);
+  els.prevSearchPage.disabled = !hasPrevious;
+  els.nextSearchPage.disabled = !hasNext;
+  els.searchPageStatus.textContent = `共 ${searchPageState.total} 条 / ${searchPageState.totalPages} 页`;
+  renderPageButtons();
+}
+
+function renderPageButtons() {
+  if (!els.searchPageButtons) return;
+  els.searchPageButtons.replaceChildren();
+  const totalPages = searchPageState.totalPages;
+  const current = searchPageState.page;
+  if (totalPages <= 1) return;
+
+  for (const item of visiblePageItems(current, totalPages)) {
+    if (item === "...") {
+      const ellipsis = document.createElement("span");
+      ellipsis.className = "page-ellipsis";
+      ellipsis.textContent = "...";
+      els.searchPageButtons.append(ellipsis);
+      continue;
+    }
+    const button = document.createElement("button");
+    button.className = "page-button";
+    button.type = "button";
+    button.textContent = String(item + 1);
+    button.classList.toggle("active", item === current);
+    button.disabled = item === current;
+    button.addEventListener("click", () => goToSearchPage(item));
+    els.searchPageButtons.append(button);
+  }
+}
+
+function visiblePageItems(current, totalPages) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index);
+  const items = [0];
+  const start = Math.max(1, Math.min(current - 1, totalPages - 4));
+  const end = Math.min(totalPages - 2, Math.max(current + 1, 3));
+  if (start > 1) items.push("...");
+  for (let page = start; page <= end; page++) items.push(page);
+  if (end < totalPages - 2) items.push("...");
+  items.push(totalPages - 1);
+  return items;
 }
 
 function renderResults(rows) {
@@ -217,6 +331,9 @@ function renderResults(rows) {
 
 function renderResultCard(row, ownerList) {
   const node = els.resultTemplate.content.firstElementChild.cloneNode(true);
+  const isFavorite = favoriteState(row);
+  node.dataset.fileId = row.id || "";
+  node.classList.toggle("is-favorite", isFavorite);
   const title = node.querySelector("h3");
   const subtitle = node.querySelector(".muted");
   const path = node.querySelector(".result-path");
@@ -227,21 +344,20 @@ function renderResultCard(row, ownerList) {
   const displayPath = joinDisplayPath(source.path_label, row.relative_path);
   const canOpenLocal = extensionState.installed && displayPath && displayPath !== row.relative_path;
 
-  title.textContent = row.code || extractCode(row.filename) || "未识别番号";
+  title.textContent = row.code || extractCode(row.filename) || "未匹配编号";
   subtitle.textContent = `${device.name || row.device_name || "未知设备"} / ${source.name || row.source_name || "未知目录"}`;
   path.textContent = displayPath || row.relative_path || row.filename;
   footer.innerHTML = "";
   actions.innerHTML = "";
-  footer.append(metaItem(row.filename));
   footer.append(metaItem(formatBytes(row.size_bytes)));
   footer.append(metaItem(`修改：${formatDate(row.mtime)}`));
   footer.append(metaItem(`同步：${formatDate(row.last_seen_at || source.last_sync_at)}`));
 
   const favoriteButton = document.createElement("button");
-  favoriteButton.className = row.is_favorite ? "icon-action favorite-active" : "icon-action";
+  favoriteButton.className = isFavorite ? "icon-action favorite-toggle favorite-active" : "icon-action favorite-toggle";
   favoriteButton.type = "button";
-  favoriteButton.textContent = row.is_favorite ? "★" : "☆";
-  favoriteButton.title = row.is_favorite ? "取消精品" : "标为精品";
+  favoriteButton.textContent = isFavorite ? "★" : "☆";
+  favoriteButton.title = isFavorite ? "取消精选" : "标为精选";
   favoriteButton.setAttribute("aria-label", favoriteButton.title);
   favoriteButton.dataset.tooltip = favoriteButton.title;
   favoriteButton.addEventListener("click", () => toggleFavorite(row, node, ownerList));
@@ -263,18 +379,103 @@ function renderResultCard(row, ownerList) {
 
 async function toggleFavorite(row, node, ownerList) {
   try {
-    const next = !row.is_favorite;
+    const next = !favoriteState(row);
     const updated = await store.setFavorite(row.id, next);
-    row.is_favorite = Boolean(updated?.is_favorite ?? next);
-    const replacement = renderResultCard(row, ownerList);
-    node.replaceWith(replacement);
-    if (!row.is_favorite && ownerList === els.favoritesList) {
-      replacement.remove();
-      if (!els.favoritesList.children.length) renderFavoritesEmpty();
-    }
+    const nextState = Boolean(updated?.is_favorite ?? next);
+    row.is_favorite = nextState;
+    favoriteStateOverrides.set(row.id, nextState);
+    updateRenderedFavoriteState(row.id, nextState);
+    updateCachedFavoriteState(row.id, nextState);
   } catch (error) {
-    els.searchMeta.textContent = `精品标记失败：${error.message}`;
+    els.searchMeta.textContent = `精选标记失败：${error.message}`;
   }
+}
+
+function favoriteState(row) {
+  return favoriteStateOverrides.has(row.id)
+    ? favoriteStateOverrides.get(row.id)
+    : Boolean(row.is_favorite);
+}
+
+function updateRenderedFavoriteState(fileId, isFavorite) {
+  if (!fileId) return;
+  for (const card of document.querySelectorAll(`[data-file-id="${fileId}"]`)) {
+    card.classList.toggle("is-favorite", isFavorite);
+    const button = card.querySelector(".favorite-toggle");
+    if (!button) continue;
+    button.classList.toggle("favorite-active", isFavorite);
+    button.textContent = isFavorite ? "★" : "☆";
+    const label = isFavorite ? "取消精选" : "标为精选";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.dataset.tooltip = label;
+  }
+}
+
+function saveSearchState({ query, rows, meta, pageState, emptyText = "" }) {
+  const payload = {
+    query,
+    rows,
+    meta,
+    pageState,
+    emptyText,
+    savedAt: Date.now(),
+  };
+  try {
+    localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota issues; search still works without cache.
+  }
+}
+
+function restoreSearchState() {
+  let cached;
+  try {
+    cached = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || "null");
+  } catch {
+    return;
+  }
+  if (!cached || Date.now() - Number(cached.savedAt || 0) > SEARCH_CACHE_TTL_MS) return;
+
+  els.searchInput.value = cached.query || "";
+  els.searchMeta.textContent = cached.meta || "已恢复上一次搜索。";
+  if (cached.pageState) searchPageState = normalizeSearchPageState(cached.pageState, cached.rows);
+  if (Array.isArray(cached.rows) && cached.rows.length) {
+    renderResults(cached.rows);
+  } else if (cached.emptyText) {
+    renderEmpty(cached.emptyText);
+  }
+  renderPagination();
+}
+
+function normalizeSearchPageState(pageState, rows = []) {
+  const total = Number(pageState.total);
+  const totalPages = Number(pageState.totalPages);
+  return {
+    query: pageState.query || "",
+    page: Math.max(0, Number(pageState.page) || 0),
+    total: Number.isFinite(total) ? total : rows.length,
+    totalPages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : 1,
+    hasMore: Boolean(pageState.hasMore),
+  };
+}
+
+function updateCachedFavoriteState(fileId, isFavorite) {
+  let cached;
+  try {
+    cached = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || "null");
+  } catch {
+    return;
+  }
+  if (!cached || !Array.isArray(cached.rows)) return;
+  let changed = false;
+  for (const row of cached.rows) {
+    if (row.id === fileId) {
+      row.is_favorite = isFavorite;
+      changed = true;
+    }
+  }
+  if (changed) localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(cached));
 }
 
 async function renderFavorites() {
@@ -293,7 +494,7 @@ async function renderFavorites() {
   }
 }
 
-function renderFavoritesEmpty(text = "还没有精品。") {
+function renderFavoritesEmpty(text = "还没有精选。") {
   els.favoritesList.replaceChildren();
   const empty = document.createElement("div");
   empty.className = "empty-state";
@@ -853,8 +1054,18 @@ function createApiStore({ apiBaseUrl = "" }) {
       return { count: processed - skippedCount, skippedCount };
     },
 
-    async search(query) {
-      return request(`/api/search?q=${encodeURIComponent(query)}`);
+    async search(query, page = 0) {
+      const offset = page * 10;
+      const result = await request(`/api/search?q=${encodeURIComponent(query)}&offset=${encodeURIComponent(offset)}`);
+      if (!Array.isArray(result)) return result;
+      return {
+        rows: result,
+        pageSize: result.length,
+        page,
+        total: result.length,
+        totalPages: 1,
+        hasMore: false,
+      };
     },
 
     async listFavorites() {
@@ -937,17 +1148,29 @@ function createDemoStore() {
       return { count: files.length, skippedCount: 0 };
     },
 
-    async search(query) {
+    async search(query, page = 0) {
       const db = readDb();
       const code = normalizeCode(query);
       const tokens = queryTokens(query);
       const files = db.files
+        .map((file) => attachDemoRelations(db, file))
         .filter((file) => {
-          if (code && file.code === code) return true;
-          return matchesQueryTokens(file.filename, tokens);
-        })
-        .map((file) => attachDemoRelations(db, file));
-      return files.sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+          if (code && isExactCodeQuery(tokens, code) && file.code === code) return true;
+          return matchesQueryTokens(file, tokens);
+        });
+      const rows = files.sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+      const pageSize = 10;
+      const offset = page * pageSize;
+      const total = rows.length;
+      return {
+        rows: rows.slice(offset, offset + pageSize),
+        pageSize,
+        page,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        nextOffset: offset + pageSize,
+        hasMore: offset + pageSize < rows.length,
+      };
     },
 
     async listFavorites() {
@@ -1016,17 +1239,33 @@ function videoExtension(filename) {
 }
 
 function queryTokens(query) {
-  const parts = String(query).toLowerCase().split(/[\s._-]+/).filter(Boolean);
+  const parts = String(query)
+    .toLowerCase()
+    .split(/[\s._,，、;；|/\\()[\]{}]+/)
+    .filter(Boolean);
   const compact = parts.join("");
-  return { compact, parts: parts.slice(0, 4) };
+  return { compact, parts: parts.slice(0, 8) };
 }
 
-function matchesQueryTokens(filename, tokens) {
-  const text = String(filename || "").toLowerCase();
+function matchesQueryTokens(file, tokens) {
+  const text = [
+    file?.filename,
+    file?.relative_path,
+    file?.code,
+    file?.source_name,
+    file?.device_name,
+    file?.sources?.name,
+    file?.sources?.path_label,
+    file?.sources?.devices?.name,
+  ].filter(Boolean).join(" ").toLowerCase();
   const compactText = text.replace(/[^a-z0-9]+/g, "");
-  if (tokens.compact && text.includes(tokens.compact)) return true;
   if (tokens.compact && compactText.includes(tokens.compact)) return true;
   return tokens.parts.length > 0 && tokens.parts.every((token) => text.includes(token));
+}
+
+function isExactCodeQuery(tokens, code) {
+  const compactCode = String(code || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return tokens.compact === compactCode;
 }
 
 function normalizeCode(text) {

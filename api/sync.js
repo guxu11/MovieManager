@@ -9,6 +9,7 @@ const {
   sendJson,
   supabaseRequest,
 } = require("./lib/supabase");
+const { buildSearchDocument } = require("./lib/search-text");
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return methodNotAllowed(res);
@@ -47,6 +48,12 @@ module.exports = async function handler(req, res) {
     for (let i = 0; i < files.length; i += CHUNK_SIZE) {
       const chunk = files.slice(i, i + CHUNK_SIZE).map((file) => ({
         ...file,
+        ...buildSearchDocument({
+          ...file,
+          sourceName,
+          pathLabel,
+          deviceName,
+        }),
         device_id: device.id,
         source_id: source.id,
         is_favorite: favoriteNames.has(file.filename),

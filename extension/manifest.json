@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Movie Manager",
-  "version": "0.2.2",
+  "version": "0.3.4",
   "description": "Search and sync local movie indexes from a manually installed browser extension.",
   "permissions": ["nativeMessaging", "storage"],
   "host_permissions": ["https://*/*"],

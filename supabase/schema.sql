@@ -28,6 +28,8 @@ create table if not exists public.files (
   size_bytes bigint,
   mtime timestamptz,
   code text,
+  search_text text,
+  search_aliases text,
   is_favorite boolean not null default false,
   last_seen_at timestamptz not null default now()
 );
@@ -35,10 +37,14 @@ create table if not exists public.files (
 create index if not exists files_code_idx on public.files (code);
 create index if not exists files_device_source_idx on public.files (device_id, source_id);
 create index if not exists files_filename_trgm_idx on public.files using gin (filename gin_trgm_ops);
+create index if not exists files_search_text_trgm_idx on public.files using gin (search_text gin_trgm_ops);
+create index if not exists files_search_aliases_trgm_idx on public.files using gin (search_aliases gin_trgm_ops);
 create unique index if not exists files_device_filename_unique on public.files (device_id, filename);
 
 alter table public.sources add column if not exists file_count integer not null default 0;
 alter table public.files add column if not exists is_favorite boolean not null default false;
+alter table public.files add column if not exists search_text text;
+alter table public.files add column if not exists search_aliases text;
 create index if not exists files_favorite_idx on public.files (is_favorite, last_seen_at desc);
 
 update public.sources
