@@ -31,9 +31,9 @@ http://localhost:4173
 
 这份 schema 会打开 RLS，并撤销 `anon` 对索引表的直接读写权限。浏览器不会直连 Supabase，数据库读写只走 Vercel API。
 
-## 部署到 Vercel
+## 部署到 Vercel API
 
-可以直接把这个目录作为静态项目部署到 Vercel。无需 build command，输出目录保持项目根目录即可。
+当前扩展是主界面，Vercel 只作为 API 后端使用。
 
 需要在 Vercel Project Settings 里配置环境变量：
 
@@ -43,7 +43,13 @@ SUPABASE_SERVICE_ROLE_KEY=你的 service_role key
 SYNC_TOKEN=自定义一个长随机口令
 ```
 
-部署后，网站设置里只需要填 `Sync token`。`API Base URL` 通常可以留空；如果你在别的域名访问前端，再填 Vercel 部署地址。
+部署后，把扩展的 [extension/config.js](./extension/config.js) 指向 Vercel API 地址和 `SYNC_TOKEN`。
+
+健康检查：
+
+```text
+GET /api/health
+```
 
 不要把 `SUPABASE_SERVICE_ROLE_KEY` 放进前端代码、浏览器 localStorage、README 截图或公开仓库。
 

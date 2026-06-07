@@ -1,8 +1,13 @@
-# macOS
+# macOS / OS generated files
 .DS_Store
+Thumbs.db
 
-# Node
+# Dependencies
 node_modules/
+
+# Logs
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -11,21 +16,24 @@ yarn-error.log*
 dist/
 build/
 out/
+coverage/
+.nyc_output/
 
-# Vercel
-.vercel/
-.vercelignore
-
-# Environment
+# Environment and local secrets
 .env
-.env.*.local
-.env.local
-.env.production
-/.env
+.env.*
+!.env.example
+extension/config.js
+native-helper/config.json
 
-# Supabase local files
+# Vercel local project state
+.vercel/
+
+# Supabase local/link state
 .supabase/
-supabase/.db
+supabase/.temp/
+supabase/.branches/
+supabase/.db/
 
 # Python
 __pycache__/
@@ -35,35 +43,21 @@ __pycache__/
 pip-log.txt
 install.log
 
-# Logs
-logs/
-*.log
-
-# Editor directories and files
-.vscode/
-.idea/
-*.swp
-*~
-
-# OS generated files
-Thumbs.db
-
-# Native helper build artifacts
+# Native helper generated artifacts
 native-helper/movie_manager_helper_native
+native-helper/movie_manager_helper_launcher.sh
+native-helper/*.o
 native-helper/*.so
 native-helper/*.dylib
 native-helper/*.dll
 native-helper/*.exe
-native-helper/*.o
 
-# Database files
+# Local databases
 *.sqlite
 *.db
 
-# Coverage
-coverage/
-.nyc_output/
-.DS_Store
-node_modules/
-.vercel/
-dist/
+# Editors
+.vscode/
+.idea/
+*.swp
+*~

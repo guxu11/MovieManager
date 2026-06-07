@@ -2,6 +2,7 @@ const VIDEO_SUFFIXES = new Set(["mp4", "ts", "mkv", "avi", "mov", "wmv", "flv", 
 const SETTINGS_KEY = "movie-manager:settings";
 const DEMO_KEY = "movie-manager:demo-db";
 const LOCAL_DEVICE_ID_KEY = "movie-manager:local-device-id";
+const REMOTE_SYNC_CHUNK_SIZE = 500;
 
 const els = {
   settingsToggle: document.querySelector("#settingsToggle"),
@@ -466,10 +467,42 @@ function createApiStore({ apiBaseUrl = "", syncToken = "" }) {
 
   return {
     async replaceSourceSnapshot({ deviceName, sourceName, pathLabel, files }) {
-      return request("/api/sync", {
-        method: "POST",
-        body: JSON.stringify({ deviceName, sourceName, pathLabel, files }),
-      });
+      if (!files.length) {
+        await request("/api/sync", {
+          method: "POST",
+          body: JSON.stringify({
+            deviceName,
+            sourceName,
+            pathLabel,
+            files: [],
+            resetSource: true,
+            isFinalBatch: true,
+            processedCount: 0,
+          }),
+        });
+        return { count: 0 };
+      }
+
+      let processed = 0;
+      for (let i = 0; i < files.length; i += REMOTE_SYNC_CHUNK_SIZE) {
+        const chunk = files.slice(i, i + REMOTE_SYNC_CHUNK_SIZE);
+        processed += chunk.length;
+        await request("/api/sync", {
+          method: "POST",
+          body: JSON.stringify({
+            deviceName,
+            sourceName,
+            pathLabel,
+            files: chunk,
+            resetSource: i === 0,
+            isFinalBatch: processed === files.length,
+            processedCount: processed,
+            totalCount: files.length,
+          }),
+        });
+        setSyncStatus(`正在上传 ${processed}/${files.length} 个视频文件...`);
+      }
+      return { count: processed };
     },
 
     async search(query) {

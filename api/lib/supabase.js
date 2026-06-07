@@ -31,8 +31,9 @@ async function supabaseRequest(path, options = {}) {
     const body = await response.text();
     throw new Error(body || `${response.status} ${response.statusText}`);
   }
-  if (response.status === 204) return null;
-  return response.json();
+  const body = await response.text();
+  if (!body) return null;
+  return JSON.parse(body);
 }
 
 function sendJson(res, status, body) {

@@ -21,6 +21,9 @@ module.exports = async function handler(req, res) {
     const sourceName = safeText(req.body?.sourceName, 80);
     const pathLabel = String(req.body?.pathLabel || "").trim().slice(0, 300);
     const inputFiles = Array.isArray(req.body?.files) ? req.body.files : null;
+    const resetSource = req.body?.resetSource !== false;
+    const isFinalBatch = req.body?.isFinalBatch !== false;
+    const processedCount = Number(req.body?.processedCount);
     if (!deviceName || !sourceName || !inputFiles) {
       return sendJson(res, 400, { error: "Invalid sync payload" });
     }
@@ -33,10 +36,12 @@ module.exports = async function handler(req, res) {
     const source = await ensureSource(device.id, sourceName, pathLabel);
     const now = new Date().toISOString();
 
-    await supabaseRequest(
-      `/files?device_id=eq.${encodeURIComponent(device.id)}&source_id=eq.${encodeURIComponent(source.id)}`,
-      { method: "DELETE" }
-    );
+    if (resetSource) {
+      await supabaseRequest(
+        `/files?device_id=eq.${encodeURIComponent(device.id)}&source_id=eq.${encodeURIComponent(source.id)}`,
+        { method: "DELETE" }
+      );
+    }
 
     for (let i = 0; i < files.length; i += CHUNK_SIZE) {
       const chunk = files.slice(i, i + CHUNK_SIZE).map((file) => ({
@@ -54,18 +59,28 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    const sourcePatch = {
+      path_label: pathLabel,
+      file_count: Number.isFinite(processedCount) && processedCount >= files.length
+        ? Math.round(processedCount)
+        : files.length,
+    };
+    if (isFinalBatch) sourcePatch.last_sync_at = now;
+
     await supabaseRequest(`/sources?id=eq.${encodeURIComponent(source.id)}`, {
       method: "PATCH",
       headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ last_sync_at: now, path_label: pathLabel, file_count: files.length }),
+      body: JSON.stringify(sourcePatch),
     });
-    await supabaseRequest(`/devices?id=eq.${encodeURIComponent(device.id)}`, {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ last_sync_at: now }),
-    });
+    if (isFinalBatch) {
+      await supabaseRequest(`/devices?id=eq.${encodeURIComponent(device.id)}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ last_sync_at: now }),
+      });
+    }
 
-    return sendJson(res, 200, { count: files.length });
+    return sendJson(res, 200, { count: sourcePatch.file_count, batchCount: files.length });
   } catch (error) {
     return sendJson(res, error.statusCode || 500, { error: error.message });
   }
