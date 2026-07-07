@@ -58,6 +58,7 @@ function isVideoFile(filename) {
 function extractCode(filename) {
   const base = String(filename || "").trim().replace(/[?？\s]+$/u, "").replace(/\.[^.]+$/, "");
   const match = base.match(/(?:^|[^a-z0-9])([a-z]{2,8})[\s._-]*0*([0-9]{2,6})(?:[^a-z0-9]|$)/i)
+    || base.match(/(?:^|[^a-z0-9])([a-z]{2,8})[\s._-]*0*([0-9]{2,6})/i)
     || base.match(/^([a-z]{2,8})0*([0-9]{2,6})$/i);
   if (!match) return null;
   return `${match[1].toUpperCase()}-${match[2]}`;

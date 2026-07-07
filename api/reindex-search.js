@@ -1,5 +1,6 @@
 const {
   methodNotAllowed,
+  normalizeCode,
   sendJson,
   supabaseRequest,
 } = require("./lib/supabase");
@@ -15,26 +16,29 @@ module.exports = async function handler(req, res) {
 
   try {
     const rows = await fetchRows();
-    const updates = rows.map((row) => ({
-      id: row.id,
-      device_id: row.device_id,
-      source_id: row.source_id,
-      filename: row.filename,
-      relative_path: row.relative_path,
-      size_bytes: row.size_bytes,
-      mtime: row.mtime,
-      code: row.code,
-      is_favorite: row.is_favorite,
-      last_seen_at: row.last_seen_at,
-      ...buildSearchDocument({
+    const updates = rows.map((row) => {
+      const code = normalizeCode(row.filename);
+      return {
+        id: row.id,
+        device_id: row.device_id,
+        source_id: row.source_id,
         filename: row.filename,
-        relativePath: row.relative_path,
-        code: row.code,
-        sourceName: row.sources?.name,
-        pathLabel: row.sources?.path_label,
-        deviceName: row.sources?.devices?.name,
-      }),
-    }));
+        relative_path: row.relative_path,
+        size_bytes: row.size_bytes,
+        mtime: row.mtime,
+        code,
+        is_favorite: row.is_favorite,
+        last_seen_at: row.last_seen_at,
+        ...buildSearchDocument({
+          filename: row.filename,
+          relativePath: row.relative_path,
+          code,
+          sourceName: row.sources?.name,
+          pathLabel: row.sources?.path_label,
+          deviceName: row.sources?.devices?.name,
+        }),
+      };
+    });
 
     for (let i = 0; i < updates.length; i += WRITE_CHUNK_SIZE) {
       await supabaseRequest("/files?on_conflict=id", {
