@@ -34,9 +34,10 @@ module.exports = async function handler(req, res) {
     const device = await ensureDevice(deviceName);
     const source = await ensureSource(device.id, sourceName, pathLabel);
     const now = new Date().toISOString();
-    const favoriteNames = resetSource
-      ? await existingFavoriteNames(device.id, source.id)
-      : new Set();
+    const favoriteIdentities = mergeFavoriteIdentities(
+      await existingFavoriteIdentities(),
+      requestFavoriteIdentities(req.body)
+    );
 
     if (resetSource) {
       await supabaseRequest(
@@ -56,7 +57,7 @@ module.exports = async function handler(req, res) {
         }),
         device_id: device.id,
         source_id: source.id,
-        is_favorite: favoriteNames.has(file.filename),
+        is_favorite: isFavoriteFile(file, favoriteIdentities),
         last_seen_at: now,
       }));
       if (chunk.length) {
@@ -101,9 +102,30 @@ function dedupeFilesByName(files) {
   return Array.from(byName.values());
 }
 
-async function existingFavoriteNames(deviceId, sourceId) {
+function requestFavoriteIdentities(body) {
+  return {
+    names: new Set(Array.isArray(body?.favoriteNames) ? body.favoriteNames.filter(Boolean) : []),
+    codes: new Set(Array.isArray(body?.favoriteCodes) ? body.favoriteCodes.filter(Boolean) : []),
+  };
+}
+
+function mergeFavoriteIdentities(...items) {
+  return {
+    names: new Set(items.flatMap((item) => Array.from(item.names || []))),
+    codes: new Set(items.flatMap((item) => Array.from(item.codes || []))),
+  };
+}
+
+function isFavoriteFile(file, favorites) {
+  return favorites.names.has(file.filename) || (file.code && favorites.codes.has(file.code));
+}
+
+async function existingFavoriteIdentities() {
   const rows = await supabaseRequest(
-    `/files?device_id=eq.${encodeURIComponent(deviceId)}&source_id=eq.${encodeURIComponent(sourceId)}&is_favorite=eq.true&select=filename`
+    "/files?is_favorite=eq.true&select=filename,code&limit=10000"
   );
-  return new Set(rows.map((row) => row.filename));
+  return {
+    names: new Set(rows.map((row) => row.filename).filter(Boolean)),
+    codes: new Set(rows.map((row) => row.code).filter(Boolean)),
+  };
 }

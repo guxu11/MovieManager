@@ -1030,6 +1030,7 @@ function createApiStore({ apiBaseUrl = "" }) {
         return { count: 0, skippedCount: 0 };
       }
 
+      const favoriteHints = await favoriteSyncHints();
       let processed = 0;
       let skippedCount = 0;
       for (let i = 0; i < files.length; i += REMOTE_SYNC_CHUNK_SIZE) {
@@ -1046,6 +1047,7 @@ function createApiStore({ apiBaseUrl = "" }) {
             isFinalBatch: processed === files.length,
             processedCount: processed,
             totalCount: files.length,
+            ...favoriteHints,
           }),
         });
         skippedCount += result?.skippedCount || 0;
@@ -1056,8 +1058,9 @@ function createApiStore({ apiBaseUrl = "" }) {
 
     async search(query, page = 0) {
       const offset = page * 10;
-      const result = await request(`/api/search?q=${encodeURIComponent(query)}&offset=${encodeURIComponent(offset)}`);
-      if (!Array.isArray(result)) return result;
+      const apiQuery = normalizeApiSearchQuery(query);
+      const result = await request(`/api/search?q=${encodeURIComponent(apiQuery)}&offset=${encodeURIComponent(offset)}`);
+      if (!Array.isArray(result)) return normalizeExactCodeResult(query, result);
       return {
         rows: result,
         pageSize: result.length,
@@ -1090,6 +1093,18 @@ function createApiStore({ apiBaseUrl = "" }) {
       });
     },
   };
+}
+
+async function favoriteSyncHints() {
+  try {
+    const rows = await store.listFavorites();
+    return {
+      favoriteNames: rows.map((row) => row.filename).filter(Boolean),
+      favoriteCodes: rows.map((row) => row.code || extractCode(row.filename)).filter(Boolean),
+    };
+  } catch {
+    return { favoriteNames: [], favoriteCodes: [] };
+  }
 }
 
 function createDemoStore() {
@@ -1128,8 +1143,12 @@ function createDemoStore() {
       source.file_count = files.length;
       device.last_sync_at = now;
       const favoriteNames = new Set(db.files
-        .filter((file) => file.device_id === device.id && file.source_id === source.id && file.is_favorite)
+        .filter((file) => file.is_favorite)
         .map((file) => file.filename));
+      const favoriteCodes = new Set(db.files
+        .filter((file) => file.is_favorite)
+        .map((file) => file.code || extractCode(file.filename))
+        .filter(Boolean));
       const incomingNames = new Set(files.map((file) => file.filename));
       db.files = db.files.filter((file) => {
         if (file.device_id !== device.id) return true;
@@ -1141,7 +1160,7 @@ function createDemoStore() {
         id: id(),
         device_id: device.id,
         source_id: source.id,
-        is_favorite: favoriteNames.has(file.filename),
+        is_favorite: favoriteNames.has(file.filename) || (file.code && favoriteCodes.has(file.code)),
         last_seen_at: now,
       })));
       writeDb(db);
@@ -1264,8 +1283,29 @@ function matchesQueryTokens(file, tokens) {
 }
 
 function isExactCodeQuery(tokens, code) {
-  const compactCode = String(code || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return tokens.compact === compactCode;
+  if (!code || tokens.parts?.length !== 1) return false;
+  return normalizeCode(tokens.parts[0]) === code;
+}
+
+function normalizeApiSearchQuery(query) {
+  const code = normalizeCode(query);
+  if (!code || !isExactCodeQuery(queryTokens(query), code)) return query;
+  return code.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeExactCodeResult(query, result) {
+  const code = normalizeCode(query);
+  if (!code || !isExactCodeQuery(queryTokens(query), code) || !Array.isArray(result?.rows)) return result;
+  const allRowsMatch = result.rows.every((row) => (row.code || extractCode(row.filename)) === code);
+  if (allRowsMatch) return result;
+  return {
+    ...result,
+    rows: [],
+    page: 0,
+    total: 0,
+    totalPages: 1,
+    hasMore: false,
+  };
 }
 
 function normalizeCode(text) {

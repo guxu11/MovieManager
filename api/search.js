@@ -26,17 +26,16 @@ module.exports = async function handler(req, res) {
     if (!query) return sendJson(res, 400, { error: "Missing query" });
     const offset = safeOffset(req.query.offset);
     const baseTokens = tokenizeSearchQueries([query]);
-    const translations = hasDictionaryCoverage(baseTokens) ? [] : await translateSearchQuery(query);
-    const tokens = translations.length ? tokenizeSearchQueries([query, ...translations]) : baseTokens;
-
     const code = normalizeCode(query);
-    if (code && isExactCodeQuery(tokens, code)) {
+    if (code && isExactCodeQuery(baseTokens, code)) {
       const exact = await fetchAll(
         `/files?code=eq.${encodeURIComponent(code)}&select=${SELECT}&order=last_seen_at.desc`
       );
-      if (exact.length) return sendJson(res, 200, pageResult(exact, offset));
-      if (offset > 0) return sendJson(res, 200, pageResult([], offset));
+      return sendJson(res, 200, pageResult(exact, offset));
     }
+
+    const translations = hasDictionaryCoverage(baseTokens) ? [] : await translateSearchQuery(query);
+    const tokens = translations.length ? tokenizeSearchQueries([query, ...translations]) : baseTokens;
 
     const token = tokens.parts[0] || tokens.compact || query;
     return sendJson(res, 200, await searchFilenamePage(token, tokens, offset));
@@ -104,6 +103,6 @@ function filterByTokens(rows, tokens) {
 }
 
 function isExactCodeQuery(tokens, code) {
-  const compactCode = String(code || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return tokens.compact === compactCode;
+  if (!code || tokens.parts?.length !== 1) return false;
+  return normalizeCode(tokens.parts[0]) === code;
 }

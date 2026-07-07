@@ -176,7 +176,7 @@ function expandAliases(values) {
       if (aliases) result.push(...aliases);
     }
     for (const [keyword, aliases] of ALIAS_LOOKUP.entries()) {
-      if (normalizedValue.includes(keyword)) result.push(...aliases);
+      if (containsCjk(keyword) && normalizedValue.includes(keyword)) result.push(...aliases);
     }
   }
   return uniqueWords(result);
@@ -190,9 +190,13 @@ function aliasTermsForPart(part) {
   const result = [normalized];
   for (const [keyword, keywordAliases] of ALIAS_LOOKUP.entries()) {
     if (keyword.length < 2) continue;
-    if (normalized.includes(keyword)) result.push(...keywordAliases);
+    if (containsCjk(keyword) && normalized.includes(keyword)) result.push(...keywordAliases);
   }
   return uniqueWords(result);
+}
+
+function containsCjk(value) {
+  return /[\u3040-\u30ff\u3400-\u9fff]/.test(value);
 }
 
 function splitTokens(value) {
