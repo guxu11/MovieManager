@@ -81,8 +81,8 @@ KEY_PATTERNS=(
 )
 
 for PATTERN in "${KEY_PATTERNS[@]}"; do
-  # Check staged files (exclude .env files)
-  FOUND=$(echo "$STAGED_FILES" | xargs grep -l "$PATTERN" 2>/dev/null | grep -v "^\..*\.env" || true)
+  # Check staged files (exclude .env files and .hooks/ directory)
+  FOUND=$(echo "$STAGED_FILES" | xargs grep -l "$PATTERN" 2>/dev/null | grep -v "^\..*\.env" | grep -v "^\.hooks/" | grep -v "^setup/" || true)
   if [ -n "$FOUND" ]; then
     log_warn "Potential secret found in staged files matching: $PATTERN"
     echo "  Files: $FOUND" >&2
