@@ -117,7 +117,7 @@ function mergeFavoriteIdentities(...items) {
 }
 
 function isFavoriteFile(file, favorites) {
-  return favorites.names.has(file.filename) || (file.code && favorites.codes.has(file.code));
+  return favorites.names.has(file.filename) || Boolean(file.code && favorites.codes.has(file.code));
 }
 
 async function existingFavoriteIdentities() {

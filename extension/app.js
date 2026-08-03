@@ -1160,7 +1160,7 @@ function createDemoStore() {
         id: id(),
         device_id: device.id,
         source_id: source.id,
-        is_favorite: favoriteNames.has(file.filename) || (file.code && favoriteCodes.has(file.code)),
+        is_favorite: favoriteNames.has(file.filename) || Boolean(file.code && favoriteCodes.has(file.code)),
         last_seen_at: now,
       })));
       writeDb(db);
