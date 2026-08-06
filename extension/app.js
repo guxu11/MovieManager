@@ -397,6 +397,12 @@ function favoriteState(row) {
     : Boolean(row.is_favorite);
 }
 
+function compareSearchResults(a, b) {
+  const favoriteDelta = Number(Boolean(b.is_favorite)) - Number(Boolean(a.is_favorite));
+  if (favoriteDelta) return favoriteDelta;
+  return String(b.last_seen_at).localeCompare(String(a.last_seen_at));
+}
+
 function updateRenderedFavoriteState(fileId, isFavorite) {
   if (!fileId) return;
   for (const card of document.querySelectorAll(`[data-file-id="${fileId}"]`)) {
@@ -1177,7 +1183,7 @@ function createDemoStore() {
           if (code && isExactCodeQuery(tokens, code) && file.code === code) return true;
           return matchesQueryTokens(file, tokens);
         });
-      const rows = files.sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+      const rows = files.sort(compareSearchResults);
       const pageSize = 10;
       const offset = page * pageSize;
       const total = rows.length;

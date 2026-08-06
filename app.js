@@ -410,6 +410,12 @@ function dedupeFilesByName(files) {
   return Array.from(byName.values());
 }
 
+function compareSearchResults(a, b) {
+  const favoriteDelta = Number(Boolean(b.is_favorite)) - Number(Boolean(a.is_favorite));
+  if (favoriteDelta) return favoriteDelta;
+  return String(b.last_seen_at).localeCompare(String(a.last_seen_at));
+}
+
 async function renderSources() {
   els.sourcesList.replaceChildren();
   try {
@@ -618,7 +624,7 @@ function createDemoStore() {
           return matchesQueryTokens(file.filename, tokens);
         })
         .map((file) => attachDemoRelations(db, file));
-      return files.sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+      return files.sort(compareSearchResults);
     },
 
     async listSources() {
